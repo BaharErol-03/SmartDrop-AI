@@ -1,36 +1,24 @@
+import { View, Text, TouchableOpacity } from "react-native";
+import { useContext } from "react";
+import { AuthContext } from "../_layout"; // Üst klasördeki Context'i çağırıyoruz
 
-import { Tabs } from 'expo-router';
-import React from 'react';
+export default function LoginSayfasi() {
+  const { login } = useContext(AuthContext);
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const handleGiris = () => {
+    // Giriş işlemleri başarılı olduğunda bu fonksiyon çalışır:
+    login(); 
+  };
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>Giriş Ekranı</Text>
+      <TouchableOpacity 
+        onPress={handleGiris}
+        style={{ backgroundColor: '#B24B4B', padding: 15, borderRadius: 8, marginTop: 20 }}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold' }}>Giriş Yap</Text>
+      </TouchableOpacity>
+    </View>
   );
 }

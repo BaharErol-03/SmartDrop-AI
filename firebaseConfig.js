@@ -1,7 +1,10 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { initializeAuth, getReactNativePersistence, browserLocalPersistence } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 
-// Firebase web config değerleriniz
+// 1. Kendi gerçek Firebase Console bilgilerini buraya yapıştır
 const firebaseConfig = {
   apiKey: "AIzaSyBeMwAj2k_KuAnGjwdl6BCvEgGyorkJSQI",
   authDomain: "pazarlik-botu.firebaseapp.com",
@@ -12,8 +15,15 @@ const firebaseConfig = {
   measurementId: "G-W4LSMLYJTB"
 };
 
-// Firebase'i başlat
-const app = initializeApp(firebaseConfig);
+// 2. Güvenli Başlatma
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const db = getFirestore(app);
 
-// Veritabanı referansını dışa aktar
-export const db = getFirestore(app);
+// 3. 🌐 Web'de ve 📱 Mobilde çökmesini önleyen dinamik kalıcılık ayarı
+const auth = initializeAuth(app, {
+  persistence: Platform.OS === "web" 
+    ? browserLocalPersistence 
+    : getReactNativePersistence(AsyncStorage),
+});
+
+export { app, db, auth };

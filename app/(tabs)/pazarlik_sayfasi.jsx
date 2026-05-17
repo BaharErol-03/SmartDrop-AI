@@ -1,6 +1,6 @@
 /**
  * SmartDrop AI — pazarlik_sayfasi.jsx
- * İkinci El Ürün Pazarlık Botu (Light Mode)
+ * İkinci El Ürün Pazarlık Botu (Light Mode) - Firebase Firestore Entegrasyonlu
  */
 
 import React, { useState, useRef, useEffect } from "react";
@@ -14,9 +14,14 @@ import {
   StatusBar,
   ScrollView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  ActivityIndicator
 } from "react-native";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
+
+// 🔥 Firebase Firestore bağlantısı ve gerekli metotlar
+import { db } from "../../firebaseConfig"; // Dosya yolunun doğruluğundan emin ol, gerekirse ../../../firebaseConfig yapabilirsin
+import { collection, getDocs } from "firebase/firestore";
 
 // ─── KURUMSAL VE SADE RENK PALETİ (LIGHT MODE) ─────────────────────────
 const C = {
@@ -33,19 +38,47 @@ const C = {
 
 export default function PazarlikScreen() {
   const [offer, setOffer] = useState("");
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: "bot",
-      text: "Merhaba Bahar! İlgilendiğin 'MacBook Pro M1 (16GB RAM)' için satıcı adına buradayım. Ürünün liste fiyatı 25.000 ₺. Aklındaki teklif nedir?",
-      time: "14:00"
-    }
-  ]);
+  const [messages, setMessages] = useState([]);
+  const [botData, setBotData] = useState(null); // 🔥 Canlı bot verisi için state
+  const [loading, setLoading] = useState(true);
   const scrollViewRef = useRef();
+
+  // ─── 🔥 FİREBASE'DEN CANLI BOT VERİLERİNİ ÇEKME SÜRECİ ──────────────────
+  useEffect(() => {
+    const botVerisiniGetir = async () => {
+      try {
+        setLoading(true);
+        const botRef = collection(db, "bot_pazarliklar");
+        const querySnapshot = await getDocs(botRef);
+        
+        if (!querySnapshot.empty) {
+          // İlk dökümanı baz alıyoruz
+          const firstDoc = querySnapshot.docs[0].data();
+          setBotData(firstDoc);
+
+          // İlk selamlama mesajını Firestore'dan gelen verilere göre dinamik oluşturuyoruz
+          setMessages([
+            {
+              id: 1,
+              sender: "bot",
+              text: `Merhaba Bahar! İlgilendiğin '${firstDoc.urunAdi}' için satıcı adına buradayım. Ürünün liste fiyatı ${firstDoc.saticiFiyati} ₺. Aklındaki teklif nedir?`,
+              time: new Date().toLocaleTimeString("tr-TR", { hour: '2-digit', minute: '2-digit' })
+            }
+          ]);
+        }
+      } catch (error) {
+        console.error("Bot verisi çekilirken hata oluştu:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    botVerisiniGetir();
+  }, []);
 
   // ─── AI PAZARLIK SİMÜLASYONU ──────────────────────────────────────────
   const handleSendOffer = () => {
-    if (!offer.trim()) return;
+    if (!offer.trim() || !botData) return;
 
     const userOffer = parseInt(offer.replace(/[^0-9]/g, ""), 10);
     if (isNaN(userOffer)) return;
@@ -64,12 +97,15 @@ export default function PazarlikScreen() {
     setTimeout(() => {
       let botResponse = "";
       
-      // Satıcının gizli dip fiyatı: 22.500 ₺
-      if (userOffer < 21000) {
-        botResponse = `Bu cihaz çok temiz kullanılmış, pil sağlığı %88. ${userOffer.toLocaleString("tr-TR")} ₺ maalesef satıcının beklentisinin çok altında. Fiyatı biraz daha yükseltebilir misin?`;
-      } else if (userOffer >= 21000 && userOffer < 22500) {
-        botResponse = `Yaklaştık! Ancak piyasa şartlarında bu temizlikte bir cihaz için en son 22.500 ₺ yapabilirim. Ortada buluşalım, ne dersin?`;
-      } else if (userOffer >= 22500 && userOffer < 24000) {
+      // Firestore'dan gelen hedef fiyatlara göre akıllı cevap simülasyonu
+      const saticiFiyatiNum = parseInt(botData.saticiFiyati.replace(/[^0-9]/g, ""), 10) || 25000;
+      const botunSonTeklifiNum = parseInt(botData.botunSonTeklifi.replace(/[^0-9]/g, ""), 10) || 22500;
+      
+      if (userOffer < botunSonTeklifiNum - 1500) {
+        botResponse = `Bu cihaz çok temiz kullanılmış. ${userOffer.toLocaleString("tr-TR")} ₺ maalesef satıcının beklentisinin çok altında. Fiyatı biraz daha yükseltebilir misin?`;
+      } else if (userOffer >= botunSonTeklifiNum - 1500 && userOffer < botunSonTeklifiNum) {
+        botResponse = `Yaklaştık! Ancak piyasa şartlarında bu temizlikte bir cihaz için satıcı adına en son ${botunSonTeklifiNum.toLocaleString("tr-TR")} ₺ yapabilirim. Ortada buluşalım, ne dersin?`;
+      } else if (userOffer >= botunSonTeklifiNum && userOffer < saticiFiyatiNum) {
         botResponse = `Teklifin mantıklı. ${userOffer.toLocaleString("tr-TR")} ₺ üzerinden satıcı adına anlaşmayı onaylıyorum! Hayırlı olsun. 🤝`;
       } else {
         botResponse = `Harika teklif! ${userOffer.toLocaleString("tr-TR")} ₺'ye anlaştık. Hemen ödeme ve kargo adımlarına geçebiliriz. 🚀`;
@@ -85,6 +121,15 @@ export default function PazarlikScreen() {
       setMessages((prev) => [...prev, newBotMsg]);
     }, 1200);
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.safe, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={{ marginTop: 10, color: C.textMuted, fontSize: 14 }}>Asistan bağlantısı kuruluyor...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -105,30 +150,36 @@ export default function PazarlikScreen() {
           </View>
         </View>
 
-        {/* ── İKİNCİ EL ÜRÜN KARTI ── */}
-        <View style={styles.productCard}>
-          <View style={styles.productIcon}>
-            <Ionicons name="laptop-outline" size={28} color={C.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.productTitle}>MacBook Pro M1 (16GB RAM)</Text>
-            <View style={styles.badgeRow}>
-              <View style={styles.badge}><Text style={styles.badgeTxt}>Kozmetik: 9/10</Text></View>
-              <View style={[styles.badge, {backgroundColor: '#fef3c7'}]}><Text style={[styles.badgeTxt, {color: C.warning}]}>Pil: %88</Text></View>
+        {/* ── 🔥 CANLI İKİNCİ EL ÜRÜN KARTI (FIRESTORE) ── */}
+        {botData && (
+          <View style={styles.productCard}>
+            <View style={styles.productIcon}>
+              <Ionicons name="laptop-outline" size={28} color={C.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.productTitle}>{botData.urunAdi}</Text>
+              <View style={styles.badgeRow}>
+                <View style={styles.badge}><Text style={styles.badgeTxt}>Durum: Canlı</Text></View>
+                <View style={[styles.badge, {backgroundColor: '#fef3c7'}]}>
+                  <Text style={[styles.badgeTxt, {color: C.warning}]} numberOfLines={1}>
+                    {botData.botDurumMesaji}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={{ alignItems: "flex-end", marginLeft: 8 }}>
+              <Text style={styles.productPrice}>{botData.saticiFiyati} ₺</Text>
+              <Text style={styles.productLabel}>İstenen Fiyat</Text>
             </View>
           </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={styles.productPrice}>25.000 ₺</Text>
-            <Text style={styles.productLabel}>İstenen Fiyat</Text>
-          </View>
-        </View>
+        )}
 
         {/* ── CHAT EKRANI ── */}
         <ScrollView 
           style={styles.chatArea} 
-          contentContainerStyle={{ paddingBottom: 120 }} // Alt menü boşluğu
+          contentContainerStyle={{ paddingBottom: 120 }}
           ref={scrollViewRef}
-          onContentSizeChange={() => scrollViewRef.current.scrollToEnd({ animated: true })}
+          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
         >
           <View style={styles.infoBubble}>
             <Ionicons name="shield-checkmark" size={12} color={C.textMuted} />
@@ -159,7 +210,7 @@ export default function PazarlikScreen() {
             <Text style={styles.currencySymbol}>₺</Text>
             <TextInput
               style={styles.input}
-              placeholder="Teklifinizi girin (Örn: 23000)"
+              placeholder={`Örn: ${botData ? botData.botunSonTeklifi : "23000"}`}
               placeholderTextColor={C.textMuted}
               keyboardType="numeric"
               value={offer}
@@ -181,15 +232,15 @@ const styles = StyleSheet.create({
   
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  botAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: `${C.primary}20` },
+  botAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.primarySoft, alignItems: "center", center: "center", justifyContent: "center", borderWidth: 1, borderColor: `${C.primary}20` },
   headerTitle: { fontSize: 16, fontWeight: "700", color: C.textPrimary },
   headerStatus: { fontSize: 12, color: C.success, fontWeight: "600" },
 
   productCard: { flexDirection: "row", alignItems: "center", backgroundColor: C.surface, margin: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: C.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 },
   productIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", marginRight: 12 },
   productTitle: { fontSize: 14, fontWeight: "700", color: C.textPrimary, marginBottom: 6 },
-  badgeRow: { flexDirection: "row", gap: 6 },
-  badge: { backgroundColor: C.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeRow: { flexDirection: "row", gap: 6, flexWrap: "wrap", maxWidth: "85%" },
+  badge: { backgroundColor: C.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, maxWith: 150 },
   badgeTxt: { fontSize: 10, fontWeight: "600", color: C.primary },
   productPrice: { fontSize: 16, fontWeight: "800", color: C.textPrimary, marginBottom: 4 },
   productLabel: { fontSize: 10, color: C.textMuted },
@@ -212,7 +263,6 @@ const styles = StyleSheet.create({
   timeBot: { color: C.textMuted },
   timeUser: { color: "rgba(255,255,255,0.7)" },
 
-  // Alt menü (Tab Bar) ile çakışmaması için bottom değerini 80'e çektik
   inputArea: { padding: 16, paddingBottom: 80, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
   inputContainer: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 25, paddingLeft: 16, paddingRight: 6, height: 50 },
   currencySymbol: { fontSize: 18, fontWeight: "600", color: C.textMuted, marginRight: 8 },
