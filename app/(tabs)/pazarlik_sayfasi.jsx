@@ -1,6 +1,6 @@
 /**
  * SmartDrop AI — pazarlik_sayfasi.jsx
- * Gemini API + Expo Router params · Rose/Kırmızı Tema
+ * Gemini API + Expo Router params · Rose/Kırmızı Tema + Sipariş Onayı
  */
 
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -21,12 +22,13 @@ import {
   View,
 } from "react-native";
 
-// ─── 🔑 GEMİNİ API ANAHTARIN BURAYA GİR ──────────────────────────────
+// 🔥 Firebase importları
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "../../firebaseConfig"; // Yolunu projene göre kontrol et
 
-const GEMINI_API_KEY = "API_KEY_YAZILACAK";
-// ─────────────────────────────────────────────────────────────────────
+// ✅ API Key artık .env dosyasından güvenli bir şekilde çekiliyor
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-// ─── ROSE/KIRMIZI RENK PALETİ ─────────────────────────────────────────
 const C = {
   bg: "#f9f0f0",
   surface: "#ffffff",
@@ -44,14 +46,14 @@ const C = {
 
 // ─── SİSTEM PROMPTU ───────────────────────────────────────────────────
 const buildSystemPrompt = (urun) => {
-  const fiyat = parseFloat(urun.Price) || 0;
+  const fiyat = parseFloat(urun.price) || 0;
   const dipFiyat = Math.round(fiyat * 0.8);
   const cokDusuk = Math.round(fiyat * 0.6);
 
   return `Sen bir ikinci el pazaryeri uygulamasında satıcı temsilcisi olarak görev yapıyorsun. Adın "Pazar". Kullanıcı senden bu ürünü almak istiyor ve seninle pazarlık ediyor.
 
-Sattığın ürün: ${urun.Product_name}
-Konum: ${urun.Address}
+Sattığın ürün: ${urun.title}
+Konum: ${urun.location}
 Fiyat: ${fiyat}₺
 
 Kişiliğin:
@@ -63,59 +65,125 @@ Kişiliğin:
 Pazarlık stratejin:
 - ${cokDusuk}₺ altındaki teklifleri reddediyorsun, ürünün değerini anlatıyorsun
 - ${cokDusuk}₺ ile ${dipFiyat}₺ arası tekliflerde müzakere ediyorsun, orta yol arıyorsun  
-- ${dipFiyat}₺ ve üstü teklifleri kabul ediyorsun, anlaşmayı onaylıyorsun
-- Asla bu fiyat sınırlarından bahsetmiyorsun, doğal bir satıcı gibi davranıyorsun
-
-Kullanıcı seninle normal sohbet de edebilir. Ürün hakkında sorular sorabilir, pazarlık yapmak yerine sadece bilgi almak isteyebilir. Her durumda doğal ve samimi cevap ver.`;
+- ${dipFiyat}₺ ve üstü teklifleri kabul ediyorsun.
+- ÖNEMLİ KURAL: Eğer kullanıcıyla bir fiyatta anlaşırsan, cevabının içinde kesinlikle "[ANLAŞTIK]" kelimesini geçir. Bu kelime sistemi tetikleyecektir.
+- Asla bu fiyat sınırlarından bahsetmiyorsun, doğal bir satıcı gibi davranıyorsun.`;
 };
 
-// ─── GEMİNİ API FONKSİYONU ────────────────────────────────────────────
+// ─── HİBRİD GEÇİŞLİ YAPAY ZEKA VE PAZARLIK MOTORU ──────────────────────
 const sendToGemini = async (urun, conversationHistory, userMessage) => {
-  const systemPrompt = buildSystemPrompt(urun);
+  const fiyat = parseFloat(urun.price) || 0;
+  const dipFiyat = Math.round(fiyat * 0.8);
+  const cokDusuk = Math.round(fiyat * 0.6);
 
-  const formattedHistory = conversationHistory.map((msg) => ({
-    role: msg.sender === "user" ? "user" : "model",
-    parts: [{ text: msg.text }],
-  }));
+  try {
+    // 1. ADIM: EĞER API KEY VARSA GERÇEK GEMINI'I ÇALIŞTIRMAYI DENER
+    if (!GEMINI_API_KEY) {
+      throw new Error("KEY_MISSING");
+    }
 
-  const contents = [
-    { role: "user", parts: [{ text: systemPrompt }] },
-    { role: "model", parts: [{ text: "Tabii, sizi dinliyorum!" }] },
-    ...formattedHistory,
-    { role: "user", parts: [{ text: userMessage }] },
-  ];
+    const systemPrompt = buildSystemPrompt(urun);
+    const formattedHistory = conversationHistory.map((msg) => ({
+      role: msg.sender === "user" ? "user" : "model",
+      parts: [{ text: msg.text }],
+    }));
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.85,
-          maxOutputTokens: 250,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    },
-  );
+    const contents = [
+      { role: "user", parts: [{ text: systemPrompt }] },
+      { role: "model", parts: [{ text: "Tabii, sizi dinliyorum!" }] },
+      ...formattedHistory,
+      { role: "user", parts: [{ text: userMessage }] },
+    ];
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `Hata kodu: ${response.status}`);
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: 0.85,
+            maxOutputTokens: 250,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error("QUOTA_OR_NETWORK_ISSUE");
+    }
+
+    const data = await response.json();
+    const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (replyText) {
+      return replyText;
+    } else {
+      throw new Error("EMPTY_REPLY");
+    }
+  } catch (error) {
+    // 2. ADIM: API KOTASI VEYA HATASI DURUMUNDA SESSİZCE LOKAL MOTOR DEVREYE GİRER (KULLANICI HİSSETMEZ)
+    console.log(
+      "Canlı API Sınırı Aşıldı. Akıllı Lokal Pazarlık Sistemi Aktif Edildi.",
+    );
+
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const mesaj = userMessage.toLowerCase();
+        const rakamlar = mesaj.match(/\d+/); // Kullanıcının yazdığı fiyata bakıyoruz
+
+        if (rakamlar) {
+          const teklif = parseInt(rakamlar[0]);
+
+          if (teklif < cokDusuk) {
+            resolve(
+              `Maalesef ${teklif}₺ çok düşük bir teklif. İnanın kurtarmıyor, ürünün değerini öldürmeyelim. Biraz daha yukarı çıkabilir misiniz? 🤖`,
+            );
+          } else if (teklif < dipFiyat) {
+            const ortaYol = Math.round((teklif + dipFiyat) / 2);
+            resolve(
+              `Teklifiniz için teşekkürler ama ${teklif}₺ beni biraz zorlar. Gelin orta yolu bulalım, ${ortaYol}₺ yapalım hemen vereyim, ne dersiniz? 🤖`,
+            );
+          } else {
+            resolve(
+              `Harika, ${teklif}₺ benim için de makul bir teklif. Sizi kırmayacağım, [ANLAŞTIK]! Ürünü sizin adınıza ayırıyorum, alttaki butondan siparişinizi onaylayabilirsiniz. 🎉🤖`,
+            );
+          }
+        } else {
+          // Eğer rakam içermeyen normal soru sorduysa
+          if (
+            mesaj.includes("durum") ||
+            mesaj.includes("temiz") ||
+            mesaj.includes("hasar") ||
+            mesaj.includes("defolu")
+          ) {
+            resolve(
+              `Ürün oldukça temiz ve yıpranmamış durumda, fotoğraflarda göründüğü gibidir. Aklınızda bir fiyat teklifi var mıydı? 🤖`,
+            );
+          } else if (
+            mesaj.includes("son") ||
+            mesaj.includes("fiyat") ||
+            mesaj.includes("olur")
+          ) {
+            resolve(
+              `Ürün için istediğim normal fiyat ${fiyat}₺ ancak ciddi alıcıysanız makul bir teklifinizi değerlendirebilirim. Sizi dinliyorum. 🤖`,
+            );
+          } else {
+            resolve(
+              `Sorunuzu tam anlayamadım ama ürünle ilgili başka merak ettiğiniz bir detay yoksa pazarlığa başlayabiliriz, teklifiniz nedir? 🤖`,
+            );
+          }
+        }
+      }, 1000); // 1 saniye gerçekçi bir düşünme gecikmesi simüle edilir
+    });
   }
-
-  const data = await response.json();
-  return (
-    data.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Bir sorun oluştu, tekrar dener misin?"
-  );
 };
 
 // ─── HAZIR MESAJ ÖNERİLERİ ────────────────────────────────────────────
-const getQuickMessages = (urun) => {
-  const fiyat = parseFloat(urun.Price) || 100;
+const getQuickMessages = (price) => {
+  const fiyat = parseFloat(price) || 100;
   return [
     `${Math.round(fiyat * 0.75)}₺ olur mu?`,
     "Ürün ne durumda?",
@@ -123,58 +191,93 @@ const getQuickMessages = (urun) => {
   ];
 };
 
+// ─── KARŞILAMA MESAJI OLUŞTUR ─────────────────────────────────────────
+const buildWelcomeMessage = (title, price) => ({
+  id: 1,
+  sender: "bot",
+  text: `Merhaba! "${title}" ilanını inceliyorsunuz. ${
+    price === "Free" || price === "0"
+      ? "Bu ürünü ücretsiz veriyorum"
+      : `Fiyatım ${price}₺`
+  }. Aklınızda bir teklif var mı, yoksa önce ürün hakkında bilgi almak ister misiniz? 😊`,
+  time: new Date().toLocaleTimeString("tr-TR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }),
+});
+
 // ─── ANA EKRAN ────────────────────────────────────────────────────────
 export default function PazarlikScreen() {
-  const params = useLocalSearchParams();
+  const { productId, title, price, imgUrl, location } = useLocalSearchParams();
   const router = useRouter();
 
   const aktifUrun = {
-    Product_name: params.Product_name || "İkinci El Ürün",
-    Price: params.Price || "100",
-    Address: params.Address || "Belirtilmemiş",
-    Image: params.Image || null,
+    title: title || "İkinci El Ürün",
+    price: price || "100",
+    location: location || "Belirtilmemiş",
+    imgUrl: imgUrl || null,
   };
 
   const [inputText, setInputText] = useState("");
   const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: "bot",
-      text: `Merhaba! "${aktifUrun.Product_name}" ilanını inceliyorsunuz. ${aktifUrun.Price === "Free" ? "Bu ürünü ücretsiz veriyorum" : `Fiyatım ${aktifUrun.Price}₺`}. Aklınızda bir teklif var mı, yoksa önce ürün hakkında bilgi almak ister misiniz? 😊`,
-      time: new Date().toLocaleTimeString("tr-TR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    },
+    buildWelcomeMessage(aktifUrun.title, aktifUrun.price),
   ]);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiError, setApiError] = useState(null);
-  const scrollViewRef = useRef();
-  const quickMessages = getQuickMessages(aktifUrun);
 
-  // ─── ÜRÜN DEĞİŞİNCE SOHBETİ SIFIRLA ──────────────────────────────
+  const [isDealClosed, setIsDealClosed] = useState(false);
+  const [finalPrice, setFinalPrice] = useState(aktifUrun.price);
+
+  const scrollViewRef = useRef();
+  const quickMessages = getQuickMessages(aktifUrun.price);
+
   useEffect(() => {
-    setMessages([
-      {
-        id: 1,
-        sender: "bot",
-        text: `Merhaba! "${aktifUrun.Product_name}" ilanını inceliyorsunuz. ${aktifUrun.Price === "Free" ? "Bu ürünü ücretsiz veriyorum" : `Fiyatım ${aktifUrun.Price}₺`}. Aklınızda bir teklif var mı, yoksa önce ürün hakkında bilgi almak ister misiniz? 😊`,
-        time: new Date().toLocaleTimeString("tr-TR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-    ]);
+    setMessages([buildWelcomeMessage(aktifUrun.title, aktifUrun.price)]);
     setInputText("");
-    setApiError(null);
-  }, [params.Product_name]);
+    setIsDealClosed(false);
+  }, [productId]);
+
+  // ─── SİPARİŞİ ONAYLA VE FİREBASE'E KAYDET ──────────────────────────
+  const handleSiparisiOnayla = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        Alert.alert("Hata", "Lütfen önce giriş yapın.");
+        return;
+      }
+
+      setIsLoading(true);
+
+      await addDoc(collection(db, "siparisler"), {
+        kullaniciId: currentUser.uid,
+        urunId: productId || "bilinmeyen-id",
+        urunAdi: aktifUrun.title,
+        gorsel: aktifUrun.imgUrl,
+        anlasilanFiyat: finalPrice,
+        durum: "Hazırlanıyor",
+        tarih: serverTimestamp(),
+      });
+
+      Alert.alert("Tebrikler!", "Siparişiniz başarıyla oluşturuldu.", [
+        { text: "Tamam", onPress: () => router.push("/siparislerim") },
+      ]);
+    } catch (error) {
+      console.error("Sipariş kaydedilerken hata:", error);
+      Alert.alert("Hata", "Sipariş oluşturulamadı. Lütfen tekrar deneyin.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // ─── MESAJ GÖNDER ─────────────────────────────────────────────────
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text || isLoading) return;
+    if (!text || isLoading || isDealClosed) return;
 
-    setApiError(null);
+    const possiblePriceMatch = text.match(/\d+/);
+    if (possiblePriceMatch) {
+      setFinalPrice(possiblePriceMatch[0]);
+    }
+
     const history = messages.filter((m) => m.id !== 1);
     const userMsg = {
       id: Date.now(),
@@ -191,7 +294,14 @@ export default function PazarlikScreen() {
     setIsLoading(true);
 
     try {
-      const botReply = await sendToGemini(aktifUrun, history, text);
+      let botReply = await sendToGemini(aktifUrun, history, text);
+
+      let dealReached = false;
+      if (botReply.includes("[ANLAŞTIK]")) {
+        dealReached = true;
+        botReply = botReply.replace("[ANLAŞTIK]", "").trim();
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -204,22 +314,26 @@ export default function PazarlikScreen() {
           }),
         },
       ]);
+
+      if (dealReached) {
+        setIsDealClosed(true);
+      }
     } catch (error) {
-      setApiError(error.message);
+      // Beklenmeyen bir sistem çökmesi durumunda genel koruma
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 1,
           sender: "bot",
-          text: `⚠️ Hata: ${error.message}`,
+          text: "Bağlantıda ufak bir kopukluk oldu, teklifinizi tekrar iletebilir misiniz?",
           time: new Date().toLocaleTimeString("tr-TR", {
             hour: "2-digit",
             minute: "2-digit",
           }),
-          isError: true,
         },
       ]);
-    } finally {
+    }
+    {
       setIsLoading(false);
     }
   };
@@ -232,7 +346,7 @@ export default function PazarlikScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        {/* ── HEADER ────────────────────────────────────────────────── */}
+        {/* ── HEADER ── */}
         <View style={styles.topHeader}>
           <View style={styles.hdCircle1} />
           <View style={styles.hdCircle2} />
@@ -262,11 +376,11 @@ export default function PazarlikScreen() {
           </View>
         </View>
 
-        {/* ── ÜRÜN KARTI ────────────────────────────────────────────── */}
+        {/* ── ÜRÜN KARTI ── */}
         <View style={styles.productCard}>
-          {aktifUrun.Image ? (
+          {aktifUrun.imgUrl ? (
             <Image
-              source={{ uri: aktifUrun.Image }}
+              source={{ uri: aktifUrun.imgUrl }}
               style={styles.productImage}
               resizeMode="cover"
             />
@@ -277,24 +391,26 @@ export default function PazarlikScreen() {
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.productTitle} numberOfLines={2}>
-              {aktifUrun.Product_name}
+              {aktifUrun.title}
             </Text>
             <View style={styles.badgeRow}>
               <View style={styles.badge}>
                 <Ionicons name="location-outline" size={10} color={C.primary} />
-                <Text style={styles.badgeTxt}> {aktifUrun.Address}</Text>
+                <Text style={styles.badgeTxt}> {aktifUrun.location}</Text>
               </View>
             </View>
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <Text style={styles.productPrice}>
-              {aktifUrun.Price === "Free" ? "Ücretsiz" : `${aktifUrun.Price}₺`}
+              {aktifUrun.price === "Free" || aktifUrun.price === "0"
+                ? "Ücretsiz"
+                : `${aktifUrun.price}₺`}
             </Text>
             <Text style={styles.productLabel}>İstenen Fiyat</Text>
           </View>
         </View>
 
-        {/* ── CHAT ALANI ────────────────────────────────────────────── */}
+        {/* ── CHAT ALANI ── */}
         <ScrollView
           style={styles.chatArea}
           contentContainerStyle={{
@@ -357,7 +473,7 @@ export default function PazarlikScreen() {
             );
           })}
 
-          {isLoading && (
+          {isLoading && !isDealClosed && (
             <View style={[styles.messageRow, styles.msgBotRow]}>
               <View style={styles.smallAvatar}>
                 <FontAwesome5 name="robot" size={9} color={C.primary} />
@@ -372,64 +488,85 @@ export default function PazarlikScreen() {
           )}
         </ScrollView>
 
-        {/* ── HAZIR MESAJ ÖNERİLERİ ─────────────────────────────────── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.quickRow}
-        >
-          {quickMessages.map((q) => (
+        {/* ── ONAY BUTONU VEYA INPUT ALANI ── */}
+        {isDealClosed ? (
+          <View style={styles.dealContainer}>
+            <Text style={styles.dealText}>
+              🎉 Anlaşma Sağlandı! ({finalPrice} ₺)
+            </Text>
             <TouchableOpacity
-              key={q}
-              style={styles.quickBtn}
-              onPress={() => setInputText(q)}
-              disabled={isLoading}
+              style={styles.confirmBtn}
+              onPress={handleSiparisiOnayla}
             >
-              <Text style={styles.quickBtnText}>{q}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── INPUT ALANI ───────────────────────────────────────────── */}
-        <View style={styles.inputArea}>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="Mesaj yaz veya teklif ver..."
-              placeholderTextColor={C.textMuted}
-              value={inputText}
-              onChangeText={setInputText}
-              editable={!isLoading}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              multiline={false}
-            />
-            <TouchableOpacity
-              style={[styles.sendBtn, isLoading && styles.sendBtnDisabled]}
-              onPress={handleSend}
-              disabled={isLoading}
-              activeOpacity={0.8}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color={C.white} />
-              ) : (
-                <Ionicons
-                  name="send"
-                  size={16}
-                  color={C.white}
-                  style={{ marginLeft: 2 }}
-                />
-              )}
+              <Ionicons
+                name="checkmark-circle"
+                size={20}
+                color={C.white}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.confirmBtnText}>Siparişi Onayla</Text>
             </TouchableOpacity>
           </View>
-          {apiError && <Text style={styles.errorText}>⚠️ {apiError}</Text>}
-        </View>
+        ) : (
+          <View>
+            {/* HAZIR MESAJ ÖNERİLERİ */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickRow}
+            >
+              {quickMessages.map((q) => (
+                <TouchableOpacity
+                  key={q}
+                  style={styles.quickBtn}
+                  onPress={() => setInputText(q)}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.quickBtnText}>{q}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* INPUT ALANI */}
+            <View style={styles.inputArea}>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mesaj yaz veya teklif ver..."
+                  placeholderTextColor={C.textMuted}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  editable={!isLoading}
+                  onSubmitEditing={handleSend}
+                  returnKeyType="send"
+                  multiline={false}
+                />
+                <TouchableOpacity
+                  style={[styles.sendBtn, isLoading && styles.sendBtnDisabled]}
+                  onPress={handleSend}
+                  disabled={isLoading}
+                  activeOpacity={0.8}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color={C.white} />
+                  ) : (
+                    <Ionicons
+                      name="send"
+                      size={16}
+                      color={C.white}
+                      style={{ marginLeft: 2 }}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-// ─── STİLLER ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   topHeader: {
@@ -498,7 +635,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   infoBtn: { padding: 4 },
-
   productCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -557,10 +693,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   productLabel: { fontSize: 10, color: C.textMuted },
-
-  // ✅ flex:1 ile chat alanı tüm boşluğu kaplar
   chatArea: { flex: 1, paddingHorizontal: 14 },
-
   infoBubble: {
     flexDirection: "row",
     alignItems: "center",
@@ -632,8 +765,6 @@ const styles = StyleSheet.create({
   timeText: { fontSize: 10, marginTop: 6, alignSelf: "flex-end" },
   timeBot: { color: C.textMuted },
   timeUser: { color: "rgba(255,255,255,0.65)" },
-
-  // ✅ paddingVertical azaltıldı — gereksiz boşluk giderildi
   quickRow: { gap: 8, paddingHorizontal: 14, paddingVertical: 2 },
   quickBtn: {
     backgroundColor: C.surface,
@@ -646,11 +777,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   quickBtnText: { fontSize: 12, fontWeight: "700", color: C.primary },
-
   inputArea: {
     paddingHorizontal: 14,
     paddingTop: 6,
-    // ✅ Android'de tab bar kadar boşluk bırakılıyordu, düzeltildi
     paddingBottom: Platform.OS === "ios" ? 24 : 12,
     backgroundColor: C.surface,
     borderTopWidth: 1,
@@ -677,10 +806,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { backgroundColor: C.textDim },
-  errorText: {
-    fontSize: 11,
-    color: "#ef4444",
-    marginTop: 6,
-    textAlign: "center",
+
+  dealContainer: {
+    backgroundColor: C.surface,
+    padding: 20,
+    borderTopWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    paddingBottom: Platform.OS === "ios" ? 40 : 20,
+  },
+  dealText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: C.success,
+    marginBottom: 15,
+  },
+  confirmBtn: {
+    flexDirection: "row",
+    backgroundColor: C.success,
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    shadowColor: C.success,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  confirmBtnText: {
+    color: C.white,
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

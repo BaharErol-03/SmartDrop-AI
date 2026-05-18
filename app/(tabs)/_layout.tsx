@@ -65,6 +65,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="siparislerim"
+        options={{
+          title: "Siparişlerim",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="basket" size={24} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
