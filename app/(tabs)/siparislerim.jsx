@@ -1,6 +1,6 @@
 /**
  * SmartDrop AI — siparislerim.jsx
- * Sayfaya her girildiğinde verileri anlık olarak tazeleyen ve geri tuşu hatası düzeltilmiş sürüm
+ * Gerçek kullanıcı oturumu ile çalışan güncel sürüm
  */
 
 import { Ionicons } from "@expo/vector-icons";
@@ -32,8 +32,14 @@ export default function SiparislerimSayfasi() {
           setLoading(true);
           const currentUser = auth.currentUser;
 
-          // Oturum yoksa test kullanıcısının verilerini çekmesini sağlıyoruz
-          const userId = currentUser ? currentUser.uid : "tester_bahar";
+          // ✅ GÜNCELLENDİ: Gerçek giriş yoksa listeyi boş getir (Test hesabı iptal edildi)
+          if (!currentUser) {
+            setSiparisler([]);
+            setLoading(false);
+            return;
+          }
+
+          const userId = currentUser.uid;
 
           const q = query(
             collection(db, "siparisler"),
@@ -83,7 +89,7 @@ export default function SiparislerimSayfasi() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {/* ✅ GÜNCELLENEN KISIM: Giriş ekranına gitmemesi için doğrudan ana sayfaya yönlendiriyoruz */}
+        {/* Giriş ekranına gitmemesi için doğrudan ana sayfaya yönlendiriyoruz */}
         <TouchableOpacity
           onPress={() => router.push("/home_sayfasi_iki")}
           style={styles.backBtn}

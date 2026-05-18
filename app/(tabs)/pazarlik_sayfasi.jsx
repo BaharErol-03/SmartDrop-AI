@@ -18,7 +18,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 // 🔥 Firebase importları
@@ -171,13 +171,19 @@ export default function PazarlikScreen() {
   }, [productId]);
 
   // ─── SİPARİŞİ ONAYLA (GÜNCELLENEN AKILLI TEST KISMI) ──────────────────
+  // ─── SİPARİŞİ ONAYLA VE FİREBASE'E KAYDET ──────────────────────────
   const handleSiparisiOnayla = async () => {
     try {
       setIsLoading(true);
       const currentUser = auth.currentUser;
 
-      // ✅ Oturum yoksa engellemek yerine sahte test ID'si atıyoruz
-      const userId = currentUser ? currentUser.uid : "tester_bahar";
+      // ✅ GÜNCELLENDİ: Artık test kullanıcısı yok, gerçek giriş zorunlu!
+      if (!currentUser) {
+        Alert.alert("Hata", "Sipariş vermek için giriş yapmalısınız.");
+        return;
+      }
+
+      const userId = currentUser.uid;
 
       await addDoc(collection(db, "siparisler"), {
         kullaniciId: userId,
@@ -188,7 +194,7 @@ export default function PazarlikScreen() {
         durum: "Hazırlanıyor",
         tarih: serverTimestamp(),
       });
-
+      //... (Alert ve yönlendirme kısımları aynı kalacak)
       if (Platform.OS === "web") {
         window.alert("Tebrikler! Siparişiniz başarıyla oluşturuldu.");
         router.push("/siparislerim");

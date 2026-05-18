@@ -45,3 +45,4 @@ app-example
 urunler.csv
 kategoriler.csv
 .env
+api_config.js
