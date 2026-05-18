@@ -1,7 +1,12 @@
+/**
+ * SmartDrop AI — siparislerim.jsx
+ * Sayfaya her girildiğinde verileri anlık olarak tazeleyen ve geri tuşu hatası düzeltilmiş sürüm
+ */
+
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
     ActivityIndicator,
     FlatList,
@@ -19,33 +24,41 @@ export default function SiparislerimSayfasi() {
   const [siparisler, setSiparisler] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const siparisleriGetir = async () => {
-      try {
-        const currentUser = auth.currentUser;
-        if (!currentUser) return;
+  // Sayfa her ekrana geldiğinde (odaklandığında) tetiklenecek yapı
+  useFocusEffect(
+    useCallback(() => {
+      const siparisleriGetir = async () => {
+        try {
+          setLoading(true);
+          const currentUser = auth.currentUser;
 
-        const q = query(
-          collection(db, "siparisler"),
-          where("kullaniciId", "==", currentUser.uid),
-        );
+          // Oturum yoksa test kullanıcısının verilerini çekmesini sağlıyoruz
+          const userId = currentUser ? currentUser.uid : "tester_bahar";
 
-        const querySnapshot = await getDocs(q);
-        const liste = [];
-        querySnapshot.forEach((doc) => {
-          liste.push({ id: doc.id, ...doc.data() });
-        });
+          const q = query(
+            collection(db, "siparisler"),
+            where("kullaniciId", "==", userId),
+          );
 
-        setSiparisler(liste);
-      } catch (error) {
-        console.error("Siparişler çekilemedi:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+          const querySnapshot = await getDocs(q);
+          const liste = [];
+          querySnapshot.forEach((doc) => {
+            liste.push({ id: doc.id, ...doc.data() });
+          });
 
-    siparisleriGetir();
-  }, []);
+          setSiparisler(liste);
+        } catch (error) {
+          console.error("Siparişler çekilemedi:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      siparisleriGetir();
+
+      return () => {};
+    }, []),
+  );
 
   const renderItem = ({ item }) => (
     <View style={styles.card}>
@@ -70,7 +83,11 @@ export default function SiparislerimSayfasi() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        {/* ✅ GÜNCELLENEN KISIM: Giriş ekranına gitmemesi için doğrudan ana sayfaya yönlendiriyoruz */}
+        <TouchableOpacity
+          onPress={() => router.push("/home_sayfasi_iki")}
+          style={styles.backBtn}
+        >
           <Ionicons name="arrow-back" size={24} color="#2d1515" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Siparişlerim</Text>
@@ -107,6 +124,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     padding: 16,
+    paddingTop: 40,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderColor: "#f2dede",
@@ -123,11 +141,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#f2dede",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
   image: { width: 70, height: 70, borderRadius: 8, backgroundColor: "#fcdada" },
   info: { flex: 1, marginLeft: 12, justifyContent: "center" },
