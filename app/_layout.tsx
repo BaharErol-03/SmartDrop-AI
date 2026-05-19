@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { DrawerContentComponentProps } from "@react-navigation/drawer";
-import { Tabs, useRouter, useSegments } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import React, { useEffect, useState } from "react";
 import {
   DeviceEventEmitter,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,45 +18,21 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
+// 🔥 Firebase çıkış fonksiyonu ve config
+import { signOut } from "firebase/auth";
+import { auth } from "../firebaseConfig"; // Yolunu projene göre kontrol et
+
 // ── 1. CUSTOM DRAWER (YAN MENÜ) ──
 function CustomDrawerContent(
   props: DrawerContentComponentProps & { onLogout: () => void },
 ) {
   const router = useRouter();
-  const segments = useSegments();
-  const currentRoute = segments[segments.length - 1] || "";
 
   const menuItems = [
-    {
-      label: "Ana Ekran",
-      icon: "home",
-      path: "/home_sayfasi_iki",
-      routeName: "home_sayfasi_iki",
-    },
-    {
-      label: "Pazarlıklarım",
-      icon: "chatbubbles",
-      path: "/pazarlik_sayfasi",
-      routeName: "pazarlik_sayfasi",
-    },
-    {
-      label: "Profilim",
-      icon: "person",
-      path: "/profil_sayfasi_bes",
-      routeName: "profil_sayfasi_bes",
-    },
-    {
-      label: "Network",
-      icon: "globe",
-      path: "/network_sayfasi_dort",
-      routeName: "network_sayfasi_dort",
-    },
-    {
-      label: "Siparişlerim",
-      icon: "basket",
-      path: "/siparislerim",
-      routeName: "siparislerim",
-    },
+    { label: "Ana Ekran", icon: "home", path: "/home_sayfasi_iki" },
+    { label: "Pazarlıklarım", icon: "chatbubbles", path: "/pazarlik_sayfasi" },
+    { label: "Profilim", icon: "person", path: "/profil_sayfasi_bes" },
+    { label: "Siparişlerim", icon: "basket", path: "/siparislerim" },
   ];
 
   return (
@@ -64,34 +41,23 @@ function CustomDrawerContent(
         <Text style={styles.drawerTitle}>Menü</Text>
       </View>
       <View style={styles.menuList}>
-        {menuItems.map((item, index) => {
-          const isActive = currentRoute === item.routeName;
-          return (
-            <TouchableOpacity
-              key={index}
-              style={[styles.menuItem, isActive && styles.activeMenuItem]}
-              onPress={() => {
-                props.navigation.closeDrawer();
-                router.push(item.path as any);
-              }}
-            >
-              <Ionicons
-                name={
-                  isActive
-                    ? (item.icon as any)
-                    : (`${item.icon}-outline` as any)
-                }
-                size={22}
-                color={isActive ? "#B24B4B" : "#9e7272"}
-              />
-              <Text
-                style={[styles.menuLabel, isActive && styles.activeMenuLabel]}
-              >
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+        {menuItems.map((item, index) => (
+          <TouchableOpacity
+            key={index}
+            style={styles.menuItem}
+            onPress={() => {
+              props.navigation.closeDrawer();
+              router.push(item.path as any);
+            }}
+          >
+            <Ionicons
+              name={`${item.icon}-outline` as any}
+              size={22}
+              color="#9e7272"
+            />
+            <Text style={styles.menuLabel}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
       <View style={styles.logoutContainer}>
         <TouchableOpacity style={styles.logoutButton} onPress={props.onLogout}>
@@ -106,16 +72,34 @@ function CustomDrawerContent(
 // ── 2. TABS LAYOUT (ALT SEKMELER) ──
 function TabLayout() {
   const colorScheme = useColorScheme();
+
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+
+        // Genel menü tasarımı
+        tabBarStyle: {
+          height: Platform.OS === "ios" ? 85 : 70,
+          paddingBottom: Platform.OS === "ios" ? 25 : 10,
+          paddingTop: 5,
+        },
+        tabBarLabelStyle: {
+          marginBottom: Platform.OS === "web" ? 10 : 5,
+          fontSize: 11,
+          fontWeight: "600",
+        },
+        tabBarItemStyle: {
+          justifyContent: "center",
+          padding: 5,
+        },
       }}
     >
-      <Tabs.Screen name="login_sayfasi_bir" options={{ href: null }} />
-      {/* Alt barda gizli */}
+      {/* ✅ KESİN ÇÖZÜM: Menüyü gizleme komutunu doğrudan bu sayfanın kendisine verdik! */}
+
+      {/* Alt barda görünen sayfalar */}
       <Tabs.Screen
         name="home_sayfasi_iki"
         options={{
@@ -143,15 +127,7 @@ function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="network_sayfasi_dort"
-        options={{
-          title: "Network",
-          tabBarIcon: ({ color }) => (
-            <Ionicons size={24} name="globe" color={color} />
-          ),
-        }}
-      />
+
       <Tabs.Screen
         name="siparislerim"
         options={{
@@ -171,7 +147,6 @@ export default function RootLayout() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    // Giriş yap butonuna basıldığında burası tetiklenecek
     const loginSubscription = DeviceEventEmitter.addListener(
       "onLoginSuccess",
       () => {
@@ -179,11 +154,15 @@ export default function RootLayout() {
         router.replace("/home_sayfasi_iki");
       },
     );
-
     return () => loginSubscription.remove();
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut(auth); // Firebase oturumunu tamamen kapatır
+    } catch (e) {
+      console.log("Çıkış hatası", e);
+    }
     setIsLoggedIn(false);
     router.replace("/login_sayfasi_bir");
   };
@@ -196,7 +175,7 @@ export default function RootLayout() {
         )}
         screenOptions={{
           headerShown: false,
-          swipeEnabled: isLoggedIn, // Giriş yapılmadıysa yan menü çekilerek açılmaz
+          swipeEnabled: isLoggedIn, // Giriş yapılmadıysa yan menüyü çektirmez
           drawerStyle: { backgroundColor: "#ffffff", width: 260 },
         }}
       >
@@ -226,9 +205,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 12,
   },
-  activeMenuItem: { backgroundColor: "#fdeeee" },
   menuLabel: { fontSize: 14, fontWeight: "600", color: "#9e7272" },
-  activeMenuLabel: { color: "#B24B4B", fontWeight: "700" },
   logoutContainer: {
     marginTop: "auto",
     marginBottom: 30,

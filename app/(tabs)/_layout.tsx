@@ -47,15 +47,7 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="network_sayfasi_dort"
-        options={{
-          title: "Network",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
-          ),
-        }}
-      />
+
       <Tabs.Screen
         name="profil_sayfasi_bes"
         options={{

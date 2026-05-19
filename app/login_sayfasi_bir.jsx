@@ -16,7 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth } from "../../firebaseConfig"; // Yolun doğru olduğundan emin ol
+import { auth } from "../firebaseConfig"; // Yolunu projene göre kontrol et
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -26,46 +26,67 @@ export default function LoginScreen() {
   // ─── GİRİŞ YAPMA FONKSİYONU ───
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Uyarı", "Lütfen e-posta ve şifrenizi boş bırakmayın.");
+      if (Platform.OS === "web")
+        window.alert("Lütfen e-posta ve şifrenizi boş bırakmayın.");
+      else Alert.alert("Uyarı", "Lütfen e-posta ve şifrenizi boş bırakmayın.");
       return;
     }
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // Başarılı olursa _layout.tsx içindeki dinleyiciye haber gönderir ve sayfayı değiştirir
       DeviceEventEmitter.emit("onLoginSuccess");
     } catch (error) {
-      console.log(error);
-      Alert.alert(
-        "Hata",
-        "Giriş yapılamadı. E-posta veya şifrenizi kontrol edin.",
-      );
+      console.log("Giriş Hatası:", error);
+      if (Platform.OS === "web")
+        window.alert("Giriş yapılamadı. E-posta veya şifrenizi kontrol edin.");
+      else
+        Alert.alert(
+          "Hata",
+          "Giriş yapılamadı. E-posta veya şifrenizi kontrol edin.",
+        );
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ─── YENİ KAYIT OLMA FONKSİYONU ───
+  // ─── YENİ KAYIT OLMA FONKSİYONU (Web Hatası Çözüldü) ───
   const handleRegister = async () => {
     if (!email || !password) {
-      Alert.alert("Uyarı", "Lütfen e-posta ve şifrenizi boş bırakmayın.");
+      if (Platform.OS === "web")
+        window.alert("Lütfen e-posta ve şifrenizi boş bırakmayın.");
+      else Alert.alert("Uyarı", "Lütfen e-posta ve şifrenizi boş bırakmayın.");
       return;
     }
     setIsLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      Alert.alert("Tebrikler!", "Kaydınız başarıyla oluşturuldu.", [
-        {
-          text: "Uygulamaya Gir",
-          onPress: () => DeviceEventEmitter.emit("onLoginSuccess"),
-        },
-      ]);
+
+      // ✅ Web ve Mobil yönlendirmesi ayrıldı
+      if (Platform.OS === "web") {
+        window.alert(
+          "Tebrikler! Kaydınız başarıyla oluşturuldu. Yönlendiriliyorsunuz...",
+        );
+        DeviceEventEmitter.emit("onLoginSuccess");
+      } else {
+        Alert.alert("Tebrikler!", "Kaydınız başarıyla oluşturuldu.", [
+          {
+            text: "Uygulamaya Gir",
+            onPress: () => DeviceEventEmitter.emit("onLoginSuccess"),
+          },
+        ]);
+      }
     } catch (error) {
-      console.log(error);
-      Alert.alert(
-        "Hata",
-        "Kayıt olunamadı. Şifrenizin en az 6 haneli olduğundan emin olun.",
-      );
+      console.log("Kayıt Hatası:", error);
+      // Hata mesajını daha anlaşılır hale getirdik
+      let errorMessage =
+        "Kayıt olunamadı. Şifrenizin en az 6 haneli olduğundan emin olun.";
+      if (error.code === "auth/email-already-in-use")
+        errorMessage = "Bu e-posta adresi zaten kullanımda.";
+      else if (error.code === "auth/invalid-email")
+        errorMessage = "Geçersiz bir e-posta adresi girdiniz.";
+
+      if (Platform.OS === "web") window.alert(errorMessage);
+      else Alert.alert("Hata", errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +116,7 @@ export default function LoginScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Şifreniz"
+            placeholder="Şifreniz (En az 6 hane)"
             placeholderTextColor="#9e7272"
             value={password}
             onChangeText={setPassword}

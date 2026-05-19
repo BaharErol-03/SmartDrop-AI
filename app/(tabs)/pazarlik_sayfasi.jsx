@@ -1,6 +1,6 @@
 /**
  * SmartDrop AI — pazarlik_sayfasi.jsx
- * Gemini API + Expo Router params · Rose/Kırmızı Tema + Sipariş Onayı
+ * Çift tıklamayı ve çoklu siparişi engelleyen güvenlik kilidi eklendi!
  */
 
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -21,7 +21,6 @@ import {
   View,
 } from "react-native";
 
-// 🔥 Firebase importları
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../firebaseConfig";
 
@@ -49,13 +48,11 @@ const buildSystemPrompt = (urun) => {
 
   return `Sen bir ikinci el pazaryeri uygulamasında satıcı temsilcisi olarak görev yapıyorsun. Adın "Pazar". Kullanıcı senden bu ürünü almak istiyor ve seninle pazarlık ediyor.
 Sattığın ürün: ${urun.title}
-Konum: ${urun.location}
 Fiyat: ${fiyat}₺
-
 Pazarlık stratejin:
 - ${cokDusuk}₺ altındaki teklifleri reddediyorsun.
 - ${dipFiyat}₺ ve üstü teklifleri kabul ediyorsun.
-- ÖNEMLİ KURAL: Eğer kullanıcıyla bir fiyatta anlaşırsan, cevabının içinde kesinlikle "[ANLAŞTIK]" kelimesini geçir.`;
+- ÖNEMLİ KURAL: Eğer kullanıcıyla anlaşırsan, cevabında kesinlikle "[ANLAŞTIK]" kelimesini geçir.`;
 };
 
 const sendToGemini = async (urun, conversationHistory, userMessage) => {
@@ -102,34 +99,20 @@ const sendToGemini = async (urun, conversationHistory, userMessage) => {
 
         if (rakamlar) {
           const teklif = parseInt(rakamlar[0]);
-          if (teklif < cokDusuk) {
+          if (teklif < cokDusuk)
             resolve(
-              `Maalesef ${teklif}₺ çok düşük bir teklif, kurtarmıyor. biraz daha çıkabilir misiniz? 🤖`,
+              `Maalesef ${teklif}₺ kurtarmıyor. Biraz daha çıkabilir misiniz? 🤖`,
             );
-          } else if (teklif < dipFiyat) {
+          else if (teklif < dipFiyat)
+            resolve(`Gelin orta yolu bulalım, biraz artırın hemen vereyim. 🤖`);
+          else
             resolve(
-              `Gelin orta yolu bulalım, biraz daha artırın hemen vereyim. 🤖`,
+              `Harika, ${teklif}₺ benim için de makul. [ANLAŞTIK]! Siparişi onaylayabilirsiniz. 🎉🤖`,
             );
-          } else {
-            resolve(
-              `Harika, ${teklif}₺ benim için de makul. [ANLAŞTIK]! Alttaki butondan siparişi onaylayabilirsiniz. 🎉🤖`,
-            );
-          }
-        } else {
-          resolve(`Fiyat teklifiniz nedir? Pazarlığa başlayabiliriz. 🤖`);
-        }
+        } else resolve(`Fiyat teklifiniz nedir? Pazarlığa başlayabiliriz. 🤖`);
       }, 1000);
     });
   }
-};
-
-const getQuickMessages = (price) => {
-  const fiyat = parseFloat(price) || 100;
-  return [
-    `${Math.round(fiyat * 0.75)}₺ olur mu?`,
-    "Ürün ne durumda?",
-    `${Math.round(fiyat * 0.85)}₺ verebilirim`,
-  ];
 };
 
 const buildWelcomeMessage = (title, price) => ({
@@ -161,25 +144,30 @@ export default function PazarlikScreen() {
   const [isDealClosed, setIsDealClosed] = useState(false);
   const [finalPrice, setFinalPrice] = useState(aktifUrun.price);
 
+  // ✅ YENİ EKLENDİ: Butona ikinci kez basılmasını engelleyecek kilit
+  const [isOrderPlaced, setIsOrderPlaced] = useState(false);
+
   const scrollViewRef = useRef();
-  const quickMessages = getQuickMessages(aktifUrun.price);
 
   useEffect(() => {
     setMessages([buildWelcomeMessage(aktifUrun.title, aktifUrun.price)]);
     setInputText("");
     setIsDealClosed(false);
+    setIsOrderPlaced(false); // Yeni ürüne geçince kilidi sıfırlar
   }, [productId]);
 
-  // ─── SİPARİŞİ ONAYLA (GÜNCELLENEN AKILLI TEST KISMI) ──────────────────
-  // ─── SİPARİŞİ ONAYLA VE FİREBASE'E KAYDET ──────────────────────────
+  // ─── SİPARİŞİ ONAYLA (Çift Tıklama Koruması Eklendi) ───
   const handleSiparisiOnayla = async () => {
+    if (isOrderPlaced) return; // Zaten tıklandıysa işlemi durdur!
+
     try {
       setIsLoading(true);
       const currentUser = auth.currentUser;
 
-      // ✅ GÜNCELLENDİ: Artık test kullanıcısı yok, gerçek giriş zorunlu!
       if (!currentUser) {
-        Alert.alert("Hata", "Sipariş vermek için giriş yapmalısınız.");
+        if (Platform.OS === "web")
+          window.alert("Sipariş vermek için giriş yapmalısınız.");
+        else Alert.alert("Hata", "Sipariş vermek için giriş yapmalısınız.");
         return;
       }
 
@@ -194,7 +182,9 @@ export default function PazarlikScreen() {
         durum: "Hazırlanıyor",
         tarih: serverTimestamp(),
       });
-      //... (Alert ve yönlendirme kısımları aynı kalacak)
+
+      setIsOrderPlaced(true); // ✅ SİPARİŞ VERİLDİ KİLİDİNİ KAPAT!
+
       if (Platform.OS === "web") {
         window.alert("Tebrikler! Siparişiniz başarıyla oluşturuldu.");
         router.push("/siparislerim");
@@ -204,7 +194,6 @@ export default function PazarlikScreen() {
         ]);
       }
     } catch (error) {
-      console.error("Sipariş kaydedilirken hata:", error);
       if (Platform.OS === "web") window.alert("Sipariş oluşturulamadı.");
       else Alert.alert("Hata", "Sipariş oluşturulamadı.");
     } finally {
@@ -257,7 +246,6 @@ export default function PazarlikScreen() {
 
       if (dealReached) setIsDealClosed(true);
     } catch (error) {
-      // Hata yönetimi
     } finally {
       setIsLoading(false);
     }
@@ -273,7 +261,8 @@ export default function PazarlikScreen() {
         {/* HEADER */}
         <View style={styles.topHeader}>
           <View style={styles.headerRow}>
-            <TouchableOpacity onPress={() => router.back()}>
+            {/* ✅ GÜNCELLENDİ: Geri tuşu artık her koşulda Ana Ekrana dönecek */}
+            <TouchableOpacity onPress={() => router.push("/home_sayfasi_iki")}>
               <Ionicons name="arrow-back" size={22} color={C.white} />
             </TouchableOpacity>
             <View style={styles.headerBotInfo}>
@@ -343,26 +332,23 @@ export default function PazarlikScreen() {
             <Text style={styles.dealText}>
               🎉 Anlaşma Sağlandı! ({finalPrice} ₺)
             </Text>
+
+            {/* ✅ BUTON KİLİTLENDİ: Tıklanınca grileşecek ve "Sipariş Alındı" yazacak */}
             <TouchableOpacity
-              style={styles.confirmBtn}
+              style={[
+                styles.confirmBtn,
+                isOrderPlaced && { backgroundColor: "#9e7272" },
+              ]}
               onPress={handleSiparisiOnayla}
+              disabled={isLoading || isOrderPlaced}
             >
-              <Text style={styles.confirmBtnText}>Siparişi Onayla</Text>
+              <Text style={styles.confirmBtnText}>
+                {isOrderPlaced ? "Sipariş Alındı ✅" : "Siparişi Onayla"}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.inputArea}>
-            <ScrollView horizontal style={styles.quickRow}>
-              {quickMessages.map((q) => (
-                <TouchableOpacity
-                  key={q}
-                  style={styles.quickBtn}
-                  onPress={() => setInputText(q)}
-                >
-                  <Text style={styles.quickBtnText}>{q}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
@@ -423,14 +409,6 @@ const styles = StyleSheet.create({
   textBot: { color: C.textPrimary },
   textUser: { color: C.white },
   inputArea: { backgroundColor: C.surface, padding: 12 },
-  quickRow: { flexDirection: "row", marginBottom: 8 },
-  quickBtn: {
-    backgroundColor: C.bg,
-    padding: 8,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  quickBtnText: { fontSize: 12, color: C.primary, fontWeight: "bold" },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
