@@ -4,7 +4,7 @@ import { initializeAuth, getReactNativePersistence, browserLocalPersistence } fr
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-// 1. Kendi gerçek Firebase Console bilgilerini buraya yapıştır
+
 const firebaseConfig = {
  
 };
